@@ -37,9 +37,9 @@ export default function ConfirmModal({
       />
 
       {/* Modal */}
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col scale-in overflow-hidden">
+      <div className="relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] sm:max-h-[85vh] flex flex-col scale-in overflow-hidden mx-2 sm:mx-0">
         {/* Header */}
-        <div className="relative px-6 pt-6 pb-4">
+        <div className="relative px-4 sm:px-6 pt-4 sm:pt-6 pb-3 sm:pb-4">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2.5 rounded-xl bg-gradient-to-br from-orange-500 to-red-500 shadow-lg shadow-orange-500/25">
@@ -62,7 +62,7 @@ export default function ConfirmModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 pb-4 space-y-4 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-4 space-y-4 custom-scrollbar">
           {hasAttachmentWarning && (
             <div className="flex items-start gap-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl slide-down">
               <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -114,7 +114,7 @@ export default function ConfirmModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50">
+        <div className="px-4 sm:px-6 py-4 border-t border-slate-100 bg-slate-50/50">
           <div className="flex items-center justify-between mb-4">
             <span className="text-sm font-semibold text-slate-700">
               Total to Process

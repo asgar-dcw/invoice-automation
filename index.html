@@ -5,17 +5,18 @@
     <link rel="icon" type="image/png" href="https://commercemarketplace.adobe.com/media/customer/MAG002771500/65c8c2363e6e2.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#ea580c" />
+    <meta name="description" content="Automate monthly invoice processing — from Harvest to Gmail drafts, in one click." />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Invoice Auto" />
     <title>Invoice Automation — DotcomWeavers</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <script>
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(s){s.unregister()})});
-      }
-    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

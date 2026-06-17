@@ -263,8 +263,8 @@ export default function RunHistory() {
   return (
     <div className="space-y-5">
       {/* Search and Filters panel */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-        <div className="relative">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50 p-3 sm:p-4 rounded-xl border border-slate-200">
+        <div className="relative col-span-2 md:col-span-1">
           <label className="block text-xs font-semibold text-slate-500 mb-1">Search ID or Client</label>
           <div className="relative">
             <input
@@ -376,9 +376,9 @@ export default function RunHistory() {
                   return (
                     <div
                       key={run.execution_id}
-                      className="bg-white rounded-xl border border-slate-200 p-4 hover:shadow-md hover:border-slate-300 transition-all"
+                      className="bg-white rounded-xl border border-slate-200 p-3 sm:p-4 hover:shadow-md hover:border-slate-300 transition-all"
                     >
-                      <div className="flex items-start justify-between gap-4">
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
                         <div className="flex items-start gap-3 flex-1 min-w-0">
                           <div className={`p-2 rounded-lg flex-shrink-0 ${
                             isCompleted
@@ -430,11 +430,11 @@ export default function RunHistory() {
                             )}
                           </div>
                         </div>
-                        <div className="text-right flex-shrink-0">
-                          <p className="text-lg font-bold text-slate-900 tabular-nums">
+                        <div className="flex sm:block items-center gap-3 sm:text-right flex-shrink-0 pl-11 sm:pl-0">
+                          <p className="text-base sm:text-lg font-bold text-slate-900 tabular-nums">
                             ${run.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </p>
-                          <p className="text-xs text-slate-400 mt-0.5">
+                          <p className="text-xs text-slate-400 sm:mt-0.5">
                             {run.client_count} client{run.client_count !== 1 ? 's' : ''}
                           </p>
                         </div>

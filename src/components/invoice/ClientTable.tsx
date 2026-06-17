@@ -192,8 +192,8 @@ export default function ClientTable({
         </div>
       )}
 
-      {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+      {/* Desktop Table */}
+      <div className="hidden md:block bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
         <div className="overflow-x-auto max-h-[56vh] custom-scrollbar">
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10">
@@ -347,6 +347,113 @@ export default function ClientTable({
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Mobile Card Layout */}
+      <div className="md:hidden space-y-3 max-h-[60vh] overflow-y-auto custom-scrollbar">
+        {loading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="bg-white rounded-xl border border-slate-200 p-4">
+              <div className="flex items-center gap-3">
+                <div className="skeleton w-10 h-10 rounded-lg flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="skeleton w-32 h-4" />
+                  <div className="skeleton w-24 h-3" />
+                </div>
+                <div className="skeleton w-4 h-4 rounded" />
+              </div>
+            </div>
+          ))
+        ) : filteredAndSorted.length === 0 ? (
+          <div className="py-12 text-center bg-white rounded-xl border border-slate-200">
+            <div className="p-3 rounded-full bg-slate-100 mx-auto w-fit">
+              <Search className="w-6 h-6 text-slate-400" />
+            </div>
+            <p className="font-semibold text-slate-600 mt-2">No clients found</p>
+            <p className="text-sm text-slate-400 mt-1">
+              {search || statusFilter !== 'all'
+                ? 'Try adjusting your search or filters'
+                : 'Check your Google Sheets configuration'}
+            </p>
+          </div>
+        ) : (
+          filteredAndSorted.map((client) => (
+            <div
+              key={client.client_name}
+              onClick={() => onToggleSelect(client._origIdx)}
+              className={`bg-white rounded-xl border p-4 transition-colors cursor-pointer ${
+                client.selected
+                  ? 'border-blue-300 bg-blue-50/40'
+                  : 'border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={client.selected}
+                  onChange={() => onToggleSelect(client._origIdx)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-4 h-4 rounded border-slate-300 text-blue-500 focus:ring-blue-400/30 cursor-pointer mt-1"
+                />
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${
+                  client.manual_attachment === 'yes'
+                    ? 'bg-gradient-to-br from-amber-400 to-orange-500'
+                    : 'bg-gradient-to-br from-emerald-400 to-green-600'
+                }`}>
+                  {client.client_name.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-slate-900 text-sm truncate">{client.client_name}</p>
+                    <StatusBadge manualAttachment={client.manual_attachment} />
+                  </div>
+                  {client.hasDuplicateWarning && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold mt-1">
+                      Already run this month
+                    </span>
+                  )}
+                  <p className="text-xs text-slate-400 mt-1 truncate">{client.ar_email}</p>
+                  <div className="flex items-center gap-3 mt-2.5" onClick={(e) => e.stopPropagation()}>
+                    <select
+                      value={client.payment_method}
+                      onChange={(e) =>
+                        onPaymentMethodChange(client._origIdx, e.target.value as PaymentMethod)
+                      }
+                      className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium input-focus cursor-pointer"
+                    >
+                      {PAYMENT_OPTIONS.map((opt) => (
+                        <option key={opt} value={opt}>{getPaymentLabel(opt)}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleExpand(client.client_name);
+                      }}
+                      className="text-orange-500 hover:text-orange-600 font-semibold text-xs transition-colors"
+                    >
+                      {expandedClients[client.client_name] ? 'Hide' : 'Email Preview'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Expandable Email Preview */}
+              {expandedClients[client.client_name] && (
+                <div className="mt-3 space-y-1.5 text-xs text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200/60 shadow-inner slide-down" onClick={(e) => e.stopPropagation()}>
+                  <div className="border-b border-slate-200 pb-1 mb-1">
+                    <span className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Email Template Preview</span>
+                  </div>
+                  <p className="truncate"><span className="font-bold text-slate-500">To:</span> <span className="font-mono text-slate-700">{client.emailConfig?.to || '—'}</span></p>
+                  <p className="truncate"><span className="font-bold text-slate-500">Cc:</span> <span className="font-mono text-slate-700">{client.emailConfig?.cc || '—'}</span></p>
+                  <p className="truncate"><span className="font-bold text-slate-500">Bcc:</span> <span className="font-mono text-slate-700">{client.emailConfig?.bcc || '—'}</span></p>
+                  <p className="pt-1 border-t border-slate-100"><span className="font-bold text-slate-500">Subject:</span> <span className="font-medium text-slate-800">{client.emailConfig?.subject || '—'}</span></p>
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

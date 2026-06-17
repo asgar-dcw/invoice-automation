@@ -263,7 +263,7 @@ export default function RunStatusPanel({
 
       <div className="p-6 space-y-5 relative z-10">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className={`p-2.5 rounded-xl shadow-lg ${
               effectivelyDone
@@ -411,7 +411,7 @@ export default function RunStatusPanel({
               ))}
             </div>
 
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
               <a
                 href="https://mail.google.com/mail/u/0/#drafts"
                 target="_blank"
@@ -425,7 +425,7 @@ export default function RunStatusPanel({
                 <button
                   type="button"
                   onClick={onViewHistory}
-                  className="px-4 py-2.5 bg-white border border-slate-200 text-slate-700 font-semibold text-sm rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-colors"
+                  className="px-4 py-2.5 bg-white border border-slate-200 text-slate-700 font-semibold text-sm rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-colors text-center"
                 >
                   View Run History
                 </button>

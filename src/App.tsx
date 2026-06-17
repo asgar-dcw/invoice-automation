@@ -25,6 +25,7 @@ import ConfirmModal from './components/invoice/ConfirmModal';
 import RunStatusPanel from './components/invoice/RunStatusPanel';
 import RunHistory from './components/invoice/RunHistory';
 import { ToastContainer } from './components/invoice/Toast';
+import InstallPWA from './components/invoice/InstallPWA';
 import type {
   ClientRow,
   PaymentMethod,
@@ -306,7 +307,7 @@ export default function App() {
                   className="h-10 sm:h-12 float-up drop-shadow-lg"
                 />
                 {lastRunText && (
-                  <div className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-full bg-white/15 backdrop-blur-sm border border-white/20 text-white/90 text-sm font-medium">
+                  <div className="hidden md:flex items-center gap-2 px-4 py-2 rounded-full bg-white/15 backdrop-blur-sm border border-white/20 text-white/90 text-sm font-medium">
                     <Zap className="w-3.5 h-3.5" />
                     Last run: {lastRunText}
                   </div>
@@ -367,13 +368,13 @@ export default function App() {
         </section>
 
         {/* Tabs */}
-        <div className="flex items-center gap-1 mb-6 bg-white rounded-xl border border-slate-200 p-1 inline-flex shadow-sm">
+        <div className="flex items-center gap-1 mb-6 bg-white rounded-xl border border-slate-200 p-1 w-full sm:w-auto sm:inline-flex shadow-sm">
           {tabs.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               type="button"
               onClick={() => setTab(id)}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all ${
+              className={`flex-1 sm:flex-initial inline-flex items-center justify-center sm:justify-start gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all ${
                 tab === id
                   ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-md shadow-orange-500/20'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
@@ -514,6 +515,9 @@ export default function App() {
           loading={triggering}
         />
       )}
+
+      {/* PWA Install Prompt */}
+      <InstallPWA />
 
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
