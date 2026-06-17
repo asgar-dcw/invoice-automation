@@ -1,0 +1,6 @@
+{
+  "name": "QA Automation Orchestrator",
+  "short_name": "QA Orchestrator",
+  "display": "standalone",
+  "start_url": "/"
+}

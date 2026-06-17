@@ -1,0 +1,8 @@
+node_modules
+.git
+*.md
+!README.md
+n8n.json
+.env
+.env.*
+*.local

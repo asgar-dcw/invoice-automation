@@ -1,0 +1,84 @@
+{
+    "name": "QA Orchestrator API",
+    "active": true,
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "qa-orchestrator",
+          "responseMode": "responseNode",
+          "options": {
+            "allowedOrigins": "*",
+            "responseHeaders": {
+              "entries": [
+                {
+                  "name": "Access-Control-Allow-Methods",
+                  "value": "POST, OPTIONS"
+                },
+                {
+                  "name": "Access-Control-Allow-Headers",
+                  "value": "Content-Type"
+                }
+              ]
+            }
+          }
+        },
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          -840,
+          -240
+        ],
+        "id": "adb08e27-3d5c-4e67-87fa-b9f12c4a6980",
+        "name": "Webhook"
+      },
+      {
+        "parameters": {
+          "promptType": "define",
+          "text": "=You are a Senior SDET. Analyze the following requirements for a {{ $json.body.Platform }} application in the {{ $json.body.Domain }} domain. \n\nGenerate comprehensive QA test cases covering positive, negative, and edge scenarios based on these requirements. \n\nRequirements: {{ $json.body.Requirements || $json.body.Notes }}\nJira Story ID: {{ $json.body['Jira Story ID'] }}\n\nYou MUST return a valid JSON object containing a single array named \"test_cases\". Each object in the array must strictly match the following keys:\n- \"ID\" (String, e.g., SMK-001)\n- \"Test case Title\" (String)\n- \"Test Step\" (String)\n- \"Test Data\" (String, use specific data if applicable, otherwise leave blank)\n- \"Expected Result\" (String)\n- \"Jira id\" (String, use the provided Jira Story ID)",
+          "hasOutputParser": true,
+          "options": {}
+        },
+        "type": "@n8n/n8n-nodes-langchain.agent",
+        "typeVersion": 3.1,
+        "position": [
+          -580,
+          -240
+        ],
+        "id": "03a8c813-2f79-4cff-b475-7902d149650f",
+        "name": "AI Agent"
+      },
+      {
+        "parameters": {
+          "model": "openai/gpt-oss-120b",
+          "options": {
+            "maxTokensToSample": 8192
+          }
+        },
+        "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+        "typeVersion": 1,
+        "position": [
+          -600,
+          -20
+        ],
+        "id": "7b55faa2-2b6a-46e8-ac3a-f5b1981a96c9",
+        "name": "Groq Chat Model",
+        "credentials": {
+          "groqApi": {
+            "id": "bUkLFlPaQycmHv45",
+            "name": "Groq account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// 1. Get the raw text\nlet rawText = $input.first().json.output;\n\n// 2. Strip markdown code blocks and trim\nlet cleanJsonString = rawText.replace(/```json\\n?|\\n?```/g, '').trim();\n\n// 3. Parse JSON\nlet data = JSON.parse(cleanJsonString);\nlet testCases = data.test_cases || [];\n\n// 4. Build CSV\nconst headers = ['ID', 'Test case Title', 'Test Step', 'Test Data', 'Expected Result', 'Jira id'];\nlet csv = headers.join(',') + '\\n';\ntestCases.forEach(tc => {\n  const row = headers.map(h => '\"' + String(tc[h] || '').replace(/\"/g, '\"\"') + '\"');\n  csv += row.join(',') + '\\n';\n});\n\nreturn [{ json: { csv }, pairedItem: { item: 0 } }];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-340, -240],
+        "id": "a1b2c3d4-5e6f-7890-abcd-ef1234567890",
+        "name": "Convert to CSV"
+      }
+    ]
+  }

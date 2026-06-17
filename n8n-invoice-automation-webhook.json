@@ -1,0 +1,68 @@
+{
+  "meta": {
+    "description": "Webhook trigger node to add to the Invoice Automation workflow (ID: IjXtpImiOInqMI5h). Replace the manual trigger with this webhook node. Keep the existing Schedule trigger (Monthly - 1st at 9AM) as a second trigger."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-automation",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [200, 200],
+      "id": "webhook-invoice-automation",
+      "name": "Webhook (Invoice Automation)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract selected clients from webhook payload\n// When triggered via webhook, use the payload clients array\n// When triggered via schedule, this node is bypassed — schedule trigger reads from Google Sheets directly\n\nconst body = $input.first().json.body || $input.first().json;\nconst clients = body.clients || [];\nconst month = body.month || '';\nconst triggeredBy = body.triggered_by || 'schedule';\n\nreturn clients.map(client => ({\n  json: {\n    client_name: client.client_name,\n    payment_method: client.payment_method,\n    ar_email: client.ar_email,\n    manual_attachment: client.manual_attachment,\n    month: month,\n    triggered_by: triggeredBy\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 200],
+      "id": "parse-webhook-payload",
+      "name": "Parse Webhook Payload"
+    }
+  ],
+  "connections": {
+    "Webhook (Invoice Automation)": {
+      "main": [
+        [
+          {
+            "node": "Parse Webhook Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Webhook Payload": {
+      "main": [
+        [
+          {
+            "node": "Build Client List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

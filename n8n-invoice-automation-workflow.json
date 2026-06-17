@@ -1,0 +1,546 @@
+{
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "681d37ee-c4ce-4884-83f3-cac7ea53e007",
+      "name": "Run on 1st of Month",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1GFZbTMRpLQngThlif3BeCtIMubBEZiS-ZDXepm_EtZ4",
+          "mode": "list",
+          "cachedResultName": "invoices",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1GFZbTMRpLQngThlif3BeCtIMubBEZiS-ZDXepm_EtZ4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "read",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1GFZbTMRpLQngThlif3BeCtIMubBEZiS-ZDXepm_EtZ4/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "5e14cc00-b81f-438a-a0ea-6fc294e87232",
+      "name": "Read Config Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        224,
+        192
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "CP2SiGiM3s0KCC0D",
+          "name": "asgar@dcw"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1GFZbTMRpLQngThlif3BeCtIMubBEZiS-ZDXepm_EtZ4",
+          "mode": "list",
+          "cachedResultName": "invoices"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1019428150,
+          "mode": "list",
+          "cachedResultName": "emails",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1GFZbTMRpLQngThlif3BeCtIMubBEZiS-ZDXepm_EtZ4/edit#gid=1019428150"
+        },
+        "options": {}
+      },
+      "id": "833ac3f9-5f1b-490a-ad01-0d0cf61f8178",
+      "name": "Read Email Templates",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        448,
+        192
+      ],
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "84cmyy5l4TSJID6Q",
+          "name": "hr-automation email"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "invoice",
+        "accountId": "212652",
+        "limit": 50,
+        "filters": {
+          "from": "={{ $now.startOf('month').minus({months: 1}).toFormat('yyyy-MM-dd') }}",
+          "state": [
+            "open",
+            "draft"
+          ]
+        }
+      },
+      "id": "0312b88a-6677-473a-9ce5-f55b082e3b26",
+      "name": "Get Harvest Invoices",
+      "type": "n8n-nodes-base.harvest",
+      "typeVersion": 1,
+      "position": [
+        672,
+        192
+      ],
+      "executeOnce": true,
+      "credentials": {
+        "harvestApi": {
+          "id": "fZEZm1Mje5qAXs9w",
+          "name": "Harvest account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if triggered by webhook (manual UI) or schedule (automatic)\nconst webhookData = $('Webhook Trigger').all?.()?.[0]?.json;\nconst isWebhookTrigger = webhookData?.clients && Array.isArray(webhookData.clients);\n\nfunction cleanMsg(msg) {\n  if (!msg) return '';\n  return msg\n    .replace(/\\\\n\\\\n/g, '</p><p style=\"margin:0 0 12px;\">')\n    .replace(/\\\\n/g, '<br>')\n    .replace(/\\n\\n/g, '</p><p style=\"margin:0 0 12px;\">')\n    .replace(/\\n/g, '<br>')\n    .trim();\n}\n\n// If webhook trigger — use the selected clients from the UI\nif (isWebhookTrigger) {\n  const emailItems = $('Read Email Templates').all();\n  const seenE = new Set();\n  const emails = emailItems.filter(e => {\n    const n = (e.json.company_name || '').toLowerCase().trim();\n    return seenE.has(n) ? false : seenE.add(n);\n  });\n\n  return webhookData.clients.map(client => {\n    const tmpl = emails.find(e =>\n      (e.json.company_name || '').toLowerCase().trim() === (client.client_name || '').toLowerCase().trim()\n    );\n    return { json: {\n      client_name: client.client_name,\n      harvest_invoice_number: client.harvest_invoice_number || '',\n      total_amount: Number(client.total_amount || 0),\n      payment_method: client.payment_method || 'bank',\n      ar_email: client.ar_email || 'accountsreceivable@dotcomweavers.com',\n      manual_attachment: client.manual_attachment || 'no',\n      email_to: tmpl?.json?.to || '',\n      email_cc: tmpl?.json?.cc || '',\n      email_bcc: tmpl?.json?.bcc || '',\n      email_subject: tmpl?.json?.subject || ('Invoice | ' + client.client_name),\n      email_message: cleanMsg(tmpl?.json?.message || '')\n    }};\n  });\n}\n\n// Otherwise — schedule trigger, read from Google Sheets as normal\nconst harvestInvoices = $('Get Harvest Invoices').all();\nconst configItems = $('Read Config Sheet').all();\nconst emailItems = $('Read Email Templates').all();\n\nconst seenC = new Set();\nconst configs = configItems.filter(c => {\n  const n = (c.json.client_name || '').toLowerCase().trim();\n  return seenC.has(n) ? false : seenC.add(n);\n});\nconst seenE = new Set();\nconst emails = emailItems.filter(e => {\n  const n = (e.json.company_name || '').toLowerCase().trim();\n  return seenE.has(n) ? false : seenE.add(n);\n});\n\nconst latest = new Map();\nfor (const inv of harvestInvoices) {\n  const n = (inv.json.client?.name || '').toLowerCase().trim();\n  const ex = latest.get(n);\n  if (!ex || inv.json.issue_date > ex.json.issue_date) latest.set(n, inv);\n}\n\nconst result = [];\nfor (const [clientName, inv] of latest) {\n  const config = configs.find(c => (c.json.client_name || '').toLowerCase().trim() === clientName);\n  if (!config) continue;\n  const tmpl = emails.find(e => (e.json.company_name || '').toLowerCase().trim() === clientName);\n  result.push({ json: {\n    client_name: inv.json.client?.name || '',\n    harvest_invoice_number: inv.json.number,\n    total_amount: Number(inv.json.amount ?? inv.json.due_amount ?? 0),\n    payment_method: (config.json.payment_method || 'bank').toLowerCase().trim(),\n    ar_email: config.json.ar_email || 'accountsreceivable@dotcomweavers.com',\n    manual_attachment: (config.json.manual_attachment_required || 'no').toLowerCase().trim(),\n    email_to: tmpl?.json?.to || '',\n    email_cc: tmpl?.json?.cc || '',\n    email_bcc: tmpl?.json?.bcc || '',\n    email_subject: tmpl?.json?.subject || ('Invoice | ' + (inv.json.client?.name || '')),\n    email_message: cleanMsg(tmpl?.json?.message || '')\n  }});\n}\nreturn result;"
+      },
+      "id": "eefa0fc8-3329-4085-ae19-40a5bd139c58",
+      "name": "Build Client List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "accountsreceivable@dotcomweavers.com",
+        "subject": "=Invoice Automation Complete — {{ $now.toFormat('MMMM yyyy') }}",
+        "message": "=<div style=\"font-family:Arial,sans-serif;max-width:640px;margin:0 auto;color:#333333;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;\">\n\n  <!-- Header -->\n  <div style=\"background:#0f172a;padding:32px;text-align:center;\">\n    <img src=\"https://commercemarketplace.adobe.com/media/customer/MAG002771500/65c8c2363e6e2.png\" alt=\"DotcomWeavers\" style=\"height:44px;display:block;margin:0 auto 16px;\"/>\n    <div style=\"width:48px;height:2px;background:#3b82f6;margin:0 auto 16px;\"></div>\n    <h1 style=\"color:#f8fafc;font-size:18px;margin:0;font-weight:600;letter-spacing:0.5px;\">Monthly Invoice Automation Report</h1>\n    <p style=\"color:#94a3b8;font-size:13px;margin:8px 0 0;letter-spacing:0.3px;\">{{ $now.toFormat('MMMM yyyy') }}</p>\n  </div>\n\n  <!-- Green status bar -->\n  <div style=\"background:#dcfce7;padding:14px 28px;border-bottom:1px solid #bbf7d0;display:flex;align-items:center;\">\n    <span style=\"display:inline-block;width:10px;height:10px;background:#16a34a;border-radius:50%;margin-right:10px;\"></span>\n    <p style=\"margin:0;font-size:14px;color:#15803d;font-weight:500;\">All invoice drafts created successfully and are ready for review.</p>\n  </div>\n\n  <!-- Body -->\n  <div style=\"padding:32px;\">\n    <p style=\"font-size:15px;line-height:1.7;margin:0 0 8px;color:#1e293b;\">Hi Team,</p>\n    <p style=\"font-size:14px;line-height:1.8;margin:0 0 28px;color:#475569;\">The monthly invoice automation has completed for <strong style=\"color:#1e293b;\">{{ $now.toFormat('MMMM yyyy') }}</strong>. The following client drafts are saved in the AR inbox and are ready for your review and sending.</p>\n\n    <!-- Client Table -->\n    <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin-bottom:32px;border-radius:8px;overflow:hidden;border:1px solid #e2e8f0;\">\n      <thead>\n        <tr style=\"background:#f1f5f9;\">\n          <th style=\"padding:11px 16px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:.08em;border-bottom:1px solid #e2e8f0;\">#</th>\n          <th style=\"padding:11px 16px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:.08em;border-bottom:1px solid #e2e8f0;\">CLIENT NAME</th>\n          <th style=\"padding:11px 16px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:.08em;border-bottom:1px solid #e2e8f0;\">INVOICE NO.</th>\n          <th style=\"padding:11px 16px;text-align:right;font-size:11px;font-weight:700;color:#64748b;letter-spacing:.08em;border-bottom:1px solid #e2e8f0;\">AMOUNT</th>\n          <th style=\"padding:11px 16px;text-align:center;font-size:11px;font-weight:700;color:#64748b;letter-spacing:.08em;border-bottom:1px solid #e2e8f0;\">STATUS</th>\n        </tr>\n      </thead>\n      <tbody>\n        {{ $(&#39;Build Client List&#39;).all().map((item, i) => `&lt;tr style=\"background:${i % 2 === 0 ? &#39;#ffffff&#39; : &#39;#f8fafc&#39;};\"&gt;&lt;td style=\"padding:13px 16px;font-size:13px;color:#94a3b8;border-bottom:1px solid #f1f5f9;\"&gt;${i + 1}&lt;/td&gt;&lt;td style=\"padding:13px 16px;font-size:14px;font-weight:600;color:#1e293b;border-bottom:1px solid #f1f5f9;\"&gt;${item.json.client_name}&lt;/td&gt;&lt;td style=\"padding:13px 16px;font-size:13px;color:#64748b;font-family:monospace;border-bottom:1px solid #f1f5f9;\"&gt;${item.json.harvest_invoice_number}&lt;/td&gt;&lt;td style=\"padding:13px 16px;font-size:14px;font-weight:600;color:#1e293b;text-align:right;border-bottom:1px solid #f1f5f9;\"&gt;$${Number(item.json.total_amount).toLocaleString(&#39;en-US&#39;,{minimumFractionDigits:2,maximumFractionDigits:2})}&lt;/td&gt;&lt;td style=\"padding:13px 16px;text-align:center;border-bottom:1px solid #f1f5f9;\"&gt;${item.json.manual_attachment === &#39;yes&#39; ? &#39;&lt;span style=\"background:#fef3c7;color:#b45309;font-size:11px;padding:3px 8px;border-radius:4px;font-weight:600;white-space:nowrap;\"&gt;ADD ATTACHMENT&lt;/span&gt;&#39; : &#39;&lt;span style=\"background:#dcfce7;color:#16a34a;font-size:11px;padding:3px 8px;border-radius:4px;font-weight:600;\"&gt;Ready&lt;/span&gt;&#39;}&lt;/td&gt;&lt;/tr&gt;`).join(&#39;&#39;) }}\n      </tbody>\n    </table>\n\n    <!-- CTA Button -->\n    <div style=\"text-align:center;margin-bottom:32px;\">\n      <a href=\"https://mail.google.com/mail/u/0/#drafts\" style=\"background:#0f172a;color:#ffffff;padding:14px 40px;text-decoration:none;font-size:14px;font-weight:600;border-radius:6px;display:inline-block;letter-spacing:0.3px;\">Open Gmail Drafts &rarr;</a>\n    </div>\n\n    <!-- Checklist -->\n    <div style=\"background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:20px 24px;margin-bottom:8px;\">\n      <p style=\"margin:0 0 12px;font-size:13px;font-weight:700;color:#92400e;letter-spacing:.03em;\">BEFORE SENDING — CHECKLIST</p>\n      <table cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\">\n        <tr><td style=\"padding:4px 0;font-size:13px;color:#78350f;line-height:1.6;\"><span style=\"color:#d97706;margin-right:8px;\">&#10003;</span>Review each draft — verify amount, recipient and subject line</td></tr>\n        <tr><td style=\"padding:4px 0;font-size:13px;color:#78350f;line-height:1.6;\"><span style=\"color:#d97706;margin-right:8px;\">&#10003;</span>Click the <strong>View and pay</strong> button to confirm the payment link is working</td></tr>\n        <tr><td style=\"padding:4px 0;font-size:13px;color:#78350f;line-height:1.6;\"><span style=\"color:#d97706;margin-right:8px;\">&#10003;</span>For any draft marked <strong>ADD ATTACHMENT</strong> — attach the timesheet before sending</td></tr>\n        <tr><td style=\"padding:4px 0;font-size:13px;color:#78350f;line-height:1.6;\"><span style=\"color:#d97706;margin-right:8px;\">&#10003;</span>Once reviewed, click <strong>Send</strong> on each draft</td></tr>\n      </table>\n    </div>\n  </div>\n\n  <!-- Footer -->\n  <div style=\"background:#f8fafc;border-top:1px solid #e2e8f0;padding:20px 32px;text-align:center;\">\n    <p style=\"margin:0 0 4px;font-size:12px;color:#94a3b8;\">Sent automatically by the DotcomWeavers Invoice Automation System</p>\n    <p style=\"margin:0;font-size:12px;color:#94a3b8;\">178 East Hanover Ave #103-123, Cedar Knolls, NJ 07960 &nbsp;&bull;&nbsp;\n    <a href=\"mailto:info@dotcomweavers.com\" style=\"color:#64748b;text-decoration:none;\">info@dotcomweavers.com</a> &nbsp;&bull;&nbsp;\n    <a href=\"https://www.dotcomweavers.com\" style=\"color:#64748b;text-decoration:none;\">dotcomweavers.com</a></p>\n  </div>\n\n</div>",
+        "options": {}
+      },
+      "id": "1225ab75-3c46-471d-b739-2ae405ae2bad",
+      "name": "Notify — All Drafts Ready",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        0
+      ],
+      "webhookId": "9e67ce16-bab7-4b54-bb73-4e529d73237d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "R4r4UbXo6THHludj",
+          "name": "ar account dcw"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "13fe1320-a1b5-42e2-b07a-75f6f305fcfb",
+      "name": "Wait 3 Min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        192
+      ],
+      "webhookId": "a31183fb-3715-4e0a-aa5d-c6c3d5e6cbb5"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 1,
+        "simple": false,
+        "filters": {
+          "q": "={{ 'from:quickbooks ' + $('For Each Client').item.json.harvest_invoice_number }}",
+          "readStatus": "both"
+        },
+        "options": {
+          "dataPropertyAttachmentsPrefixName": "invoice_pdf_",
+          "downloadAttachments": true
+        }
+      },
+      "id": "43519dcf-1808-4a24-a4d1-1c9db06ba624",
+      "name": "Read AR Inbox",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        192
+      ],
+      "webhookId": "faa7aa9c-c1c6-4a1b-bb57-a9a76446630d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "R4r4UbXo6THHludj",
+          "name": "ar account dcw"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "={{ ($('For Each Client').item.json.manual_attachment === 'yes' ? '⚠️ [ADD ATTACHMENT] ' : '') + $('For Each Client').item.json.email_subject }}",
+        "emailType": "html",
+        "message": "=<div style=\"font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#333333;\"><div style=\"text-align:center;padding:24px 0 16px;\"><img src=\"https://commercemarketplace.adobe.com/media/customer/MAG002771500/65c8c2363e6e2.png\" alt=\"DotcomWeavers\" style=\"height:60px;\"/></div><div style=\"background-color:#e8f0f7;border-radius:6px;padding:28px;text-align:center;margin:0 0 24px;\"><p style=\"font-size:18px;font-weight:bold;margin:0 0 12px;\">Your invoice is ready!</p><p style=\"font-size:12px;letter-spacing:1px;color:#666666;margin:0 0 6px;\">BALANCE DUE</p><p style=\"font-size:36px;font-weight:bold;margin:0;\">${{ $('For Each Client').item.json.total_amount.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) }}</p></div><div style=\"padding:0 0 24px;font-size:15px;line-height:1.7;\"><p style=\"margin:0 0 12px;\">{{ $('For Each Client').item.json.email_message }}</p></div><div style=\"text-align:center;padding:8px 0 32px;\">{{ (() => { const html = $input.item.json.html || ''; const m = html.match(/href=\"(https?:\\/\\/links\\.notification\\.intuit\\.com\\/ls\\/click[^\"]+)\"/); const m2 = m ? null : html.match(/href=\"(https?:\\/\\/[^\"]*intuit\\.com[^\"]*)\"/); const link = m ? m[1] : (m2 && !m2[1].includes('privacy') && !m2[1].includes('unsubscribe') ? m2[1] : ''); return link ? '<a href=\"' + link + '\" style=\"background-color:#1a7f3c;color:#ffffff;padding:14px 40px;text-decoration:none;font-size:16px;font-weight:bold;border-radius:24px;display:inline-block;\">View and pay</a>' : '<p style=\"color:#cc0000;\">⚠️ Pay link not found — add manually</p>'; })() }}</div><div style=\"background-color:#e8f0f7;border-radius:6px;padding:20px;text-align:center;font-size:13px;color:#555555;\"><p style=\"font-weight:bold;margin:0 0 6px;\">DOTCOMWEAVERS</p><p style=\"margin:0 0 4px;\">178 East Hanover Ave #103-123 Cedar Knolls, NJ 07960-2013</p><p style=\"margin:0;\">+5388101 &nbsp;<a href=\"mailto:info@dotcomweavers.com\" style=\"color:#1a56a0;\">info@dotcomweavers.com</a> &nbsp;<a href=\"https://www.dotcomweavers.com\" style=\"color:#1a56a0;\">www.dotcomweavers.com</a></p></div>{{ $('For Each Client').item.json.manual_attachment === 'yes' ? '<br><p style=\"color:#b45309;background:#fef3c7;padding:12px;border-left:4px solid #b45309;margin:16px 0 0;\"><strong>⚠️ REMINDER:</strong> Manually attach timesheet before sending.</p>' : '' }}</div>",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "invoice_pdf_0"
+              }
+            ]
+          },
+          "bccList": "={{ $('For Each Client').item.json.email_bcc }}",
+          "ccList": "={{ $('For Each Client').item.json.email_cc }}",
+          "sendTo": "={{ $('For Each Client').item.json.email_to }}"
+        }
+      },
+      "id": "44a2dcaf-f0ed-429a-b50a-6843b758003a",
+      "name": "Create Draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2096,
+        448
+      ],
+      "webhookId": "fbc5192c-4bd7-41d4-bcee-9ea7b68ffa30",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "R4r4UbXo6THHludj",
+          "name": "ar account dcw"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "1a5d741d-8c20-4a94-9f6c-7a5fecd082df",
+      "name": "For Each Client",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "32076e35-db28-455f-a282-5f0516327884",
+      "name": "Monthly — 1st at 9AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "invoice",
+        "operation": "getAll",
+        "limit": 1,
+        "filters": {}
+      },
+      "id": "098f4238-b84e-4b81-8edd-4737aad35380",
+      "name": "Find QB Invoice ID",
+      "type": "n8n-nodes-base.quickbooks",
+      "typeVersion": 1,
+      "position": [
+        1136,
+        448
+      ],
+      "credentials": {
+        "quickBooksOAuth2Api": {
+          "id": "fEteCUF95WY7fFTB",
+          "name": "QuickBooks Online account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $('Find QB Invoice ID').first().json;\nconst client = $('For Each Client').first().json;\nreturn [{ json: { invoiceId: item.Id, docNumber: item.DocNumber, status: 'already_sent', arEmail: client.ar_email } }];"
+      },
+      "id": "f2a9a2c0-de0a-4291-a24d-54800ee16333",
+      "name": "Send Invoice via QB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "id": "897b6751-e9d4-461a-99ad-1573cf708a5c",
+      "name": "Collect Drafts",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2240,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-automation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a45f4ebd-ab34-45b0-a30b-c0e65398f4c8",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        592,
+        -208
+      ],
+      "webhookId": "dae501ed-59e0-420a-acba-21cc68b88d23"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1GFZbTMRpLQngThlif3BeCtIMubBEZiS-ZDXepm_EtZ4",
+          "mode": "list",
+          "cachedResultName": "invoices"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "runs",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date": "={{ $now.toISO() }}",
+            "triggered_by": "={{ $('Webhook Trigger').all()?.[0]?.json?.triggered_by || 'Schedule (Auto)' }}",
+            "clients_processed": "={{ $('Build Client List').all().map(c => c.json.client_name).join(', ') }}",
+            "client_count": "={{ $('Build Client List').all().length }}",
+            "total_amount": "={{ $('Build Client List').all().reduce((sum, c) => sum + Number(c.json.total_amount || 0), 0).toFixed(2) }}",
+            "status": "completed",
+            "month": "={{ $now.toFormat('MMMM yyyy') }}",
+            "execution_id": "={{ $execution.id }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "7cf90d19-d068-4857-a457-90c2e637271b",
+      "name": "Log Run to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1568,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "84cmyy5l4TSJID6Q",
+          "name": "hr-automation email"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Run on 1st of Month": {
+      "main": [
+        [
+          {
+            "node": "Read Config Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Config Sheet": {
+      "main": [
+        [
+          {
+            "node": "Read Email Templates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Email Templates": {
+      "main": [
+        [
+          {
+            "node": "Get Harvest Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Harvest Invoices": {
+      "main": [
+        [
+          {
+            "node": "Build Client List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Client List": {
+      "main": [
+        [
+          {
+            "node": "For Each Client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify — All Drafts Ready": {
+      "main": [
+        [
+          {
+            "node": "Log Run to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 3 Min": {
+      "main": [
+        [
+          {
+            "node": "Read AR Inbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read AR Inbox": {
+      "main": [
+        [
+          {
+            "node": "Create Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Draft": {
+      "main": [
+        [
+          {
+            "node": "For Each Client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "For Each Client": {
+      "main": [
+        [
+          {
+            "node": "Collect Drafts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Find QB Invoice ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monthly — 1st at 9AM": {
+      "main": [
+        [
+          {
+            "node": "Read Config Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find QB Invoice ID": {
+      "main": [
+        [
+          {
+            "node": "Send Invoice via QB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Invoice via QB": {
+      "main": [
+        [
+          {
+            "node": "Wait 3 Min",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Drafts": {
+      "main": [
+        [
+          {
+            "node": "Notify — All Drafts Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Client List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  }
+}

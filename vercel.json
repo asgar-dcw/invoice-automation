@@ -1,0 +1,9 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/webhook/:path*", "destination": "https://hr.n8n.dcw.dev/webhook/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
