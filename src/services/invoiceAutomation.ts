@@ -42,8 +42,7 @@ export async function triggerInvoiceAutomation(
  */
 export async function fetchProgress(executionId: string, triggerTime: number): Promise<ProgressRow[]> {
   const API_KEY = import.meta.env.VITE_GOOGLE_SHEETS_API_KEY;
-  const cacheBuster = `&_cb=${Date.now()}`;
-  const url = `${getSheetsBaseUrl()}/v4/spreadsheets/${SPREADSHEET_ID}/values/progress?key=${API_KEY}${cacheBuster}`;
+  const url = `${getSheetsBaseUrl()}/v4/spreadsheets/${SPREADSHEET_ID}/values/progress?key=${API_KEY}`;
 
   const res = await fetch(url);
   if (!res.ok) {

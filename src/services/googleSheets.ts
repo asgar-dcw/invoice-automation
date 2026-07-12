@@ -29,8 +29,7 @@ async function getCachedData<T>(key: string, forceRefresh: boolean, fetchFn: () 
 
 export async function fetchClients(forceRefresh = false): Promise<ClientRow[]> {
   return getCachedData('clients', forceRefresh, async () => {
-    const cacheBuster = forceRefresh ? `&_cb=${Date.now()}` : '';
-    const url = `${getSheetsBaseUrl()}/v4/spreadsheets/${SPREADSHEET_ID}/values/${SHEET_NAME}?key=${API_KEY}${cacheBuster}`;
+    const url = `${getSheetsBaseUrl()}/v4/spreadsheets/${SPREADSHEET_ID}/values/${SHEET_NAME}?key=${API_KEY}`;
 
     const res = await fetch(url);
     if (!res.ok) {
@@ -71,8 +70,7 @@ export async function fetchClients(forceRefresh = false): Promise<ClientRow[]> {
 
 export async function fetchRunHistory(forceRefresh = false): Promise<RunHistoryRecord[]> {
   return getCachedData('runHistory', forceRefresh, async () => {
-    const cacheBuster = forceRefresh ? `&_cb=${Date.now()}` : '';
-    const url = `${getSheetsBaseUrl()}/v4/spreadsheets/${SPREADSHEET_ID}/values/runs?key=${API_KEY}${cacheBuster}`;
+    const url = `${getSheetsBaseUrl()}/v4/spreadsheets/${SPREADSHEET_ID}/values/runs?key=${API_KEY}`;
 
     const res = await fetch(url);
     if (!res.ok) {
@@ -112,8 +110,7 @@ export async function fetchRunHistory(forceRefresh = false): Promise<RunHistoryR
 
 export async function fetchEmailConfigs(forceRefresh = false): Promise<EmailConfigRecord[]> {
   return getCachedData('emailConfigs', forceRefresh, async () => {
-    const cacheBuster = forceRefresh ? `&_cb=${Date.now()}` : '';
-    const url = `${getSheetsBaseUrl()}/v4/spreadsheets/${SPREADSHEET_ID}/values/emails?key=${API_KEY}${cacheBuster}`;
+    const url = `${getSheetsBaseUrl()}/v4/spreadsheets/${SPREADSHEET_ID}/values/emails?key=${API_KEY}`;
 
     const res = await fetch(url);
     if (!res.ok) {
