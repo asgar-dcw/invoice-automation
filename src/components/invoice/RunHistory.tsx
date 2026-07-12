@@ -109,11 +109,13 @@ export default function RunHistory() {
     }
   }
 
-  // 1. Deduplicate by execution_id (stable keys for empty IDs)
+  // 1. Deduplicate by execution_id (stable keys for empty IDs).
+  //    Skip legacy garbage rows where both execution_id and date are empty.
   const uniqueRunsMap = new Map<string, RunHistoryRecord>();
   let emptyIdCounter = 0;
   runs.forEach((run) => {
     const execId = run.execution_id.trim();
+    if (!execId && !run.date.trim()) return; // legacy garbage row — skip
     if (execId && !uniqueRunsMap.has(execId)) {
       uniqueRunsMap.set(execId, run);
     } else if (!execId) {

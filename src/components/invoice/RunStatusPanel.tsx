@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader2, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
-import type { ClientProcessingStatus, ClientProcessingStep, RunHistoryRecord } from '../../types/invoice';
-import { pollForRunCompletion } from '../../services/invoiceAutomation';
+import { Loader2, CheckCircle2, AlertCircle, ExternalLink, MinusCircle } from 'lucide-react';
+import type { ClientProcessingStatus, ClientProcessingStep, RunHistoryRecord, ProgressRow } from '../../types/invoice';
+import { pollForRunCompletion, fetchProgress } from '../../services/invoiceAutomation';
 
 interface RunStatusPanelProps {
   statuses: ClientProcessingStatus[];
@@ -9,6 +9,7 @@ interface RunStatusPanelProps {
   hasError: boolean;
   triggerTime: number;
   triggeredBy: string;
+  executionId: string;
   completedRecord: RunHistoryRecord | null;
   isTimeout: boolean;
   onComplete?: (record: RunHistoryRecord) => void;
@@ -46,6 +47,12 @@ function StepIndicator({ step }: { step: ClientProcessingStep }) {
           <CheckCircle2 className="w-4 h-4 text-emerald-500" />
         </div>
       );
+    case 'skipped':
+      return (
+        <div className="w-8 h-8 rounded-full bg-slate-100 border-2 border-slate-200 flex items-center justify-center">
+          <MinusCircle className="w-4 h-4 text-slate-400" />
+        </div>
+      );
     case 'error':
       return (
         <div className="w-8 h-8 rounded-full bg-red-50 border-2 border-red-200 flex items-center justify-center">
@@ -62,6 +69,7 @@ function stepLabel(step: ClientProcessingStep, message: string): string {
     case 'finding_qb': return 'Getting payment link from QuickBooks...';
     case 'sending_ar': return 'Merging and saving drafts...';
     case 'draft_created': return 'Draft created successfully';
+    case 'skipped': return 'Skipped';
     case 'error': return 'Error occurred';
   }
 }
@@ -113,23 +121,13 @@ function Confetti() {
   );
 }
 
-/**
- * Actual n8n workflow steps per client:
- *   1. Find QB Invoice ID  (~5s)
- *   2. Read AR Inbox       (~5s)
- *   3. Prepare Draft Data  (~3s)
- *   4. Create Draft        (~5s)
- * Total: ~40s per client + ~15s overhead for Harvest fetch + notification
- */
-const PER_CLIENT_SECONDS = 40;
-const OVERHEAD_SECONDS = 15; // Harvest fetch + Notify + Log
-
 export default function RunStatusPanel({
   statuses,
   allDone,
   hasError,
   triggerTime,
   triggeredBy,
+  executionId,
   completedRecord,
   isTimeout,
   onComplete,
@@ -137,11 +135,11 @@ export default function RunStatusPanel({
   onViewHistory,
 }: RunStatusPanelProps) {
   const totalClients = statuses.length;
-  const estimatedDuration = OVERHEAD_SECONDS + totalClients * PER_CLIENT_SECONDS;
 
   const [now, setNow] = useState(Date.now());
+  const [progressRows, setProgressRows] = useState<ProgressRow[]>([]);
 
-  // Stable refs so polling doesn't re-subscribe on every render
+  // Stable refs so polling callbacks don't re-subscribe on every render
   const onCompleteRef = useRef(onComplete);
   const onTimeoutRef = useRef(onTimeout);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
@@ -154,6 +152,7 @@ export default function RunStatusPanel({
     const unsubscribe = pollForRunCompletion(
       triggerTime,
       triggeredBy,
+      totalClients,
       (record) => onCompleteRef.current?.(record),
       () => onTimeoutRef.current?.()
     );
@@ -161,7 +160,26 @@ export default function RunStatusPanel({
     return () => unsubscribe();
   }, [allDone, triggerTime, triggeredBy]);
 
-  // Tick timer for elapsed counter + progress animation
+  // Poll "progress" sheet every 5 s for real per-client status
+  useEffect(() => {
+    if (allDone || isTimeout) return;
+
+    const poll = async () => {
+      try {
+        const rows = await fetchProgress(executionId, triggerTime);
+        setProgressRows(rows);
+      } catch (err) {
+        console.error('Error fetching progress:', err);
+      }
+    };
+
+    // Kick off immediately, then every 5 s
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => clearInterval(interval);
+  }, [allDone, isTimeout, executionId]);
+
+  // Tick timer for elapsed counter display
   useEffect(() => {
     if (allDone || isTimeout) return;
 
@@ -171,23 +189,13 @@ export default function RunStatusPanel({
 
   const elapsedSeconds = triggerTime > 0 ? Math.max(0, Math.floor((now - triggerTime) / 1000)) : 0;
 
-  // --- PROGRESS CALCULATION ---
-  // Asymptotic curve: f(t) = 98 * (1 - e^(-2.5t / E))
-  //   - Starts fast, never stops, approaches 98%
-  //   - At t=E:  ~92%
-  //   - At t=2E: ~99%
-  // Jumps to 100% only when all clients are done.
-  const rawPct = 98 * (1 - Math.exp(-2.5 * elapsedSeconds / Math.max(estimatedDuration, 1)));
-  const estimatedPct = Math.min(98, Math.round(rawPct));
-
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  // --- PER-CLIENT STATUS DERIVATION ---
-  // Maps elapsed time to the actual n8n workflow steps per client.
+  // --- PER-CLIENT STATUS FROM REAL PROGRESS DATA ---
   const derivedStatuses: ClientProcessingStatus[] = (() => {
     if (allDone && hasError) return statuses;
 
@@ -199,63 +207,49 @@ export default function RunStatusPanel({
       }));
     }
 
-    // Time-based simulation matching actual n8n nodes:
-    //   Per client: Find QB (28%) → Read AR Inbox (25%) → Prepare Draft (17%) → Create Draft (30%)
-    // First ~OVERHEAD/2 seconds are spent on Harvest fetch (before per-client loop starts)
-    const loopStart = OVERHEAD_SECONDS / 2; // seconds before the per-client loop begins
+    return statuses.map((s) => {
+      const row = progressRows.find(
+        (r) => r.client_name.trim().toLowerCase() === s.client_name.trim().toLowerCase()
+      );
 
-    return statuses.map((s, idx) => {
-      const clientStart = loopStart + idx * PER_CLIENT_SECONDS;
-      const clientEnd = clientStart + PER_CLIENT_SECONDS;
-
-      // Client hasn't started yet
-      if (elapsedSeconds < clientStart) {
+      if (!row) {
         return { ...s, step: 'pending' as const, message: 'Waiting in queue...' };
       }
 
-      // Client is fully done (estimated)
-      if (elapsedSeconds >= clientEnd) {
-        return { ...s, step: 'draft_created' as const, message: 'Draft created successfully' };
+      switch (row.step) {
+        case 'processing':
+          return { ...s, step: 'sending_ar' as const, message: 'Processing invoice...' };
+        case 'draft_created':
+          return { ...s, step: 'draft_created' as const, message: 'Draft created successfully' };
+        case 'skipped':
+          return { ...s, step: 'skipped' as const, message: 'Skipped' };
+        default:
+          return { ...s, step: 'pending' as const, message: 'Waiting in queue...' };
       }
-
-      // Client is in progress — map to actual workflow step
-      const clientElapsed = elapsedSeconds - clientStart;
-      const pctThrough = (clientElapsed / PER_CLIENT_SECONDS) * 100;
-
-      let step: ClientProcessingStep;
-      let message: string;
-
-      if (pctThrough < 25) {
-        // QuickBooks lookup + Gmail AR inbox poll (~10s)
-        step = 'finding_qb';
-        message = 'Getting payment link from QuickBooks...';
-      } else {
-        // Draft data preparation + Gmail API call (~30s)
-        step = 'sending_ar';
-        message = 'Merging and saving drafts...';
-      }
-
-      return { ...s, step, message };
     });
   })();
 
-  const currentClientIndex = derivedStatuses.findIndex(
-    (s) => s.step === 'finding_qb' || s.step === 'sending_ar'
-  );
+  const DONE_STEPS: ClientProcessingStep[] = ['draft_created', 'skipped', 'error'];
+  const doneCount = derivedStatuses.filter((s) => DONE_STEPS.includes(s.step)).length;
+
+  const currentClientIndex = derivedStatuses.findIndex((s) => s.step === 'sending_ar');
+
+  // Consider the run done if real progress shows all clients have reached a terminal state.
+  const allClientsIndividuallyDone =
+    totalClients > 0 && derivedStatuses.every((s) => DONE_STEPS.includes(s.step));
+
+  const effectivelyDone = allDone || allClientsIndividuallyDone;
+
+  // Real percentage: completed / total. Jump to 100 only when fully done.
+  const pct = effectivelyDone
+    ? 100
+    : totalClients > 0
+      ? Math.round((doneCount / totalClients) * 100)
+      : 0;
 
   const processedClientsList = completedRecord
     ? completedRecord.clients_processed.split(' | ').map((c) => c.trim()).filter(Boolean)
     : statuses.map((s) => s.client_name);
-
-  const doneCount = derivedStatuses.filter((s) => s.step === 'draft_created').length;
-
-  // Check if all individual clients are done (time-based simulation finished)
-  // even before the external allDone confirmation arrives from polling
-  const allClientsIndividuallyDone = totalClients > 0 && derivedStatuses.every(
-    (s) => s.step === 'draft_created' || s.step === 'error'
-  );
-  const effectivelyDone = allDone || allClientsIndividuallyDone;
-  const pct = effectivelyDone ? 100 : estimatedPct;
 
   return (
     <div className="relative bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden slide-up">
@@ -447,9 +441,11 @@ export default function RunStatusPanel({
                       ? 'bg-emerald-50/50 border-emerald-100'
                       : s.step === 'error'
                         ? 'bg-red-50/50 border-red-100'
-                        : s.step === 'pending'
+                        : s.step === 'skipped'
                           ? 'bg-slate-50/50 border-slate-100'
-                          : 'bg-orange-50/30 border-orange-100'
+                          : s.step === 'pending'
+                            ? 'bg-slate-50/50 border-slate-100'
+                            : 'bg-orange-50/30 border-orange-100'
                   }`}
                   style={{ animationDelay: `${idx * 0.05}s` }}
                 >
@@ -463,7 +459,9 @@ export default function RunStatusPanel({
                           ? 'text-orange-500 font-semibold animate-pulse'
                           : s.step === 'draft_created'
                             ? 'text-emerald-600 font-medium'
-                            : 'text-slate-500'
+                            : s.step === 'skipped'
+                              ? 'text-slate-400 font-medium'
+                              : 'text-slate-500'
                     }`}>
                       {stepLabel(s.step, s.message)}
                     </p>
@@ -473,6 +471,9 @@ export default function RunStatusPanel({
                   </div>
                   {s.step === 'draft_created' && (
                     <span className="badge-success text-[10px]">Done</span>
+                  )}
+                  {s.step === 'skipped' && (
+                    <span className="badge-neutral text-[10px]">Skipped</span>
                   )}
                 </div>
               );

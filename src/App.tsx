@@ -60,6 +60,7 @@ export default function App() {
 
   const [lastRunText, setLastRunText] = useState<string>('');
   const [triggerTime, setTriggerTime] = useState<number>(0);
+  const [currentExecutionId, setCurrentExecutionId] = useState<string>('');
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [historyKey, setHistoryKey] = useState(0);
   const [completedRecord, setCompletedRecord] = useState<RunHistoryRecord | null>(null);
@@ -216,6 +217,7 @@ export default function App() {
     setCompletedRecord(null);
     setIsTimeout(false);
     setHasError(false);
+    setCurrentExecutionId('');
 
     const now = new Date();
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -238,7 +240,8 @@ export default function App() {
     setTriggering(true);
     triggerInvoiceAutomation(payload)
       .then(({ executionId }) => {
-        addToast('info', `Workflow triggered (Execution: ${executionId.slice(0, 8)}...)`);
+        setCurrentExecutionId(executionId);
+        addToast('info', 'Workflow triggered — tracking progress...');
       })
       .catch((err) => {
         const errMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -474,6 +477,7 @@ export default function App() {
                   hasError={hasError}
                   triggerTime={triggerTime}
                   triggeredBy={TRIGGERED_BY}
+                  executionId={currentExecutionId}
                   completedRecord={completedRecord}
                   isTimeout={isTimeout}
                   onViewHistory={() => setTab('history')}

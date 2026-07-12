@@ -39,7 +39,14 @@ export type ClientProcessingStep =
   | 'finding_qb'
   | 'sending_ar'
   | 'draft_created'
+  | 'skipped'
   | 'error';
+
+export interface ProgressRow {
+  client_name: string;
+  step: 'processing' | 'draft_created' | 'skipped';
+  updated_at: string;
+}
 
 export interface ClientProcessingStatus {
   client_name: string;
