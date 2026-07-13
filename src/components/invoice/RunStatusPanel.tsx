@@ -240,11 +240,19 @@ export default function RunStatusPanel({
 
   const effectivelyDone = allDone || allClientsIndividuallyDone;
 
-  // Real percentage: completed / total. Jump to 100 only when fully done.
+  // Weighted percentage so the bar moves as soon as the first client starts processing:
+  //   pending          -> 0.0
+  //   sending_ar       -> 0.5  (actively processing)
+  //   draft_created / skipped / error -> 1.0
+  const weightedSum = derivedStatuses.reduce((sum, s) => {
+    if (DONE_STEPS.includes(s.step)) return sum + 1.0;
+    if (s.step === 'sending_ar') return sum + 0.5;
+    return sum; // pending / finding_qb -> 0
+  }, 0);
   const pct = effectivelyDone
     ? 100
     : totalClients > 0
-      ? Math.round((doneCount / totalClients) * 100)
+      ? Math.round((weightedSum / totalClients) * 100)
       : 0;
 
   const processedClientsList = completedRecord
