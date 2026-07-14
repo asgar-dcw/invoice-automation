@@ -1,4 +1,4 @@
-# Deploy to Vercel
+## Deploy to Vercel
 
 ## Quick Deploy
 
