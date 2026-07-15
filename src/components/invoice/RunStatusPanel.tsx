@@ -3,6 +3,12 @@ import { Loader2, CheckCircle2, AlertCircle, ExternalLink, MinusCircle } from 'l
 import type { ClientProcessingStatus, ClientProcessingStep, RunHistoryRecord, ProgressRow } from '../../types/invoice';
 import { pollForRunCompletion, fetchProgress } from '../../services/invoiceAutomation';
 
+interface ChunkFailure {
+  chunkIndex: number;
+  totalChunks: number;
+  failedClients: string[];
+}
+
 interface RunStatusPanelProps {
   statuses: ClientProcessingStatus[];
   allDone: boolean;
@@ -15,6 +21,12 @@ interface RunStatusPanelProps {
   onComplete?: (record: RunHistoryRecord) => void;
   onTimeout?: () => void;
   onViewHistory?: () => void;
+  /** When true, the panel skips its internal pollForRunCompletion (used in chunked mode where App.tsx drives completion). */
+  skipInternalPolling?: boolean;
+  /** Per-chunk trigger time used for fetchProgress filtering; falls back to triggerTime when absent. */
+  chunkTriggerTime?: number;
+  /** Set when a chunk has failed, so the panel can surface actionable retry info. */
+  chunkFailure?: ChunkFailure | null;
 }
 
 function StepIndicator({ step }: { step: ClientProcessingStep }) {
@@ -133,6 +145,9 @@ export default function RunStatusPanel({
   onComplete,
   onTimeout,
   onViewHistory,
+  skipInternalPolling = false,
+  chunkTriggerTime,
+  chunkFailure,
 }: RunStatusPanelProps) {
   const totalClients = statuses.length;
 
@@ -145,9 +160,9 @@ export default function RunStatusPanel({
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
   useEffect(() => { onTimeoutRef.current = onTimeout; }, [onTimeout]);
 
-  // Poll "runs" sheet for the completion row
+  // Poll "runs" sheet for the completion row (skipped in chunked mode; App.tsx drives it)
   useEffect(() => {
-    if (allDone) return;
+    if (allDone || skipInternalPolling) return;
 
     const unsubscribe = pollForRunCompletion(
       triggerTime,
@@ -158,15 +173,19 @@ export default function RunStatusPanel({
     );
 
     return () => unsubscribe();
-  }, [allDone, triggerTime, triggeredBy]);
+  }, [allDone, skipInternalPolling, triggerTime, triggeredBy]);
 
   // Poll "progress" sheet every 5 s for real per-client status
   useEffect(() => {
     if (allDone || isTimeout) return;
 
+    // In chunked mode, use the per-chunk trigger time so we pick up the current
+    // chunk's rows from the sheet rather than filtering them out as too old.
+    const progressTriggerTime = chunkTriggerTime ?? triggerTime;
+
     const poll = async () => {
       try {
-        const rows = await fetchProgress(executionId, triggerTime);
+        const rows = await fetchProgress(executionId, progressTriggerTime);
         setProgressRows(rows);
       } catch (err) {
         console.error('Error fetching progress:', err);
@@ -177,7 +196,7 @@ export default function RunStatusPanel({
     poll();
     const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);
-  }, [allDone, isTimeout, executionId]);
+  }, [allDone, isTimeout, executionId, chunkTriggerTime]);
 
   // Tick timer for elapsed counter display
   useEffect(() => {
@@ -208,6 +227,13 @@ export default function RunStatusPanel({
     }
 
     return statuses.map((s) => {
+      // Preserve statuses that App.tsx has already confirmed (e.g. from completed
+      // chunks in a chunked run). Without this, clients from prior chunks would
+      // revert to 'pending' once the next chunk's triggerTime filters them out.
+      if (s.step === 'draft_created' || s.step === 'skipped' || s.step === 'error') {
+        return s;
+      }
+
       const row = progressRows.find(
         (r) => r.client_name.trim().toLowerCase() === s.client_name.trim().toLowerCase()
       );
@@ -372,6 +398,32 @@ export default function RunStatusPanel({
               Open Gmail Drafts
               <ExternalLink className="w-3 h-3" />
             </a>
+          </div>
+        )}
+
+        {/* Chunk Failure Banner */}
+        {chunkFailure && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-xl slide-down space-y-3">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-red-800">
+                  Chunk {chunkFailure.chunkIndex + 1} of {chunkFailure.totalChunks} failed or timed out
+                </p>
+                <p className="text-xs text-red-700 mt-0.5">
+                  {totalClients - chunkFailure.failedClients.length} of {totalClients} clients completed successfully.
+                  The clients below still need to be processed — re-select them and run again.
+                </p>
+              </div>
+            </div>
+            <div className="pl-8 space-y-1.5">
+              {chunkFailure.failedClients.map((name) => (
+                <div key={name} className="flex items-center gap-2 text-xs text-red-700 font-semibold">
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 text-red-500" />
+                  {name}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

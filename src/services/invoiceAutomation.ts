@@ -1,4 +1,4 @@
-import type { WebhookPayload, RunHistoryRecord, ProgressRow } from '../types/invoice';
+import type { WebhookPayload, WebhookClient, RunHistoryRecord, ProgressRow } from '../types/invoice';
 import { fetchRunHistory } from './googleSheets';
 
 const webhookPath = '/webhook/invoice-automation';
@@ -142,4 +142,121 @@ export function pollForRunCompletion(
   }, POLL_INTERVAL);
 
   return () => clearInterval(interval);
+}
+
+// ---------------------------------------------------------------------------
+// Chunked automation
+// ---------------------------------------------------------------------------
+
+export interface ChunkResult {
+  totalRequested: number;
+  totalCompleted: number;
+  /** Client names from the chunk that failed or timed out */
+  failedClients: string[];
+  /** 0-based index of the chunk that failed, if any */
+  failedChunkIndex?: number;
+}
+
+const CHUNK_SIZE = 5;
+
+/**
+ * Wraps pollForRunCompletion as a Promise so it can be awaited inside
+ * triggerInvoiceAutomationChunked.
+ */
+function pollForRunCompletionAsync(
+  triggerTime: number,
+  triggeredBy: string,
+  clientCount: number
+): Promise<RunHistoryRecord> {
+  return new Promise((resolve, reject) => {
+    pollForRunCompletion(
+      triggerTime,
+      triggeredBy,
+      clientCount,
+      (record) => resolve(record),
+      () => reject(new Error('timeout'))
+    );
+  });
+}
+
+/**
+ * Splits clients into chunks of 5 and triggers each chunk sequentially,
+ * waiting for each chunk's n8n run to complete before starting the next.
+ *
+ * If a chunk fails or times out, processing stops and the result describes
+ * which clients were confirmed and which still need to be retried.
+ */
+export async function triggerInvoiceAutomationChunked(
+  clients: WebhookClient[],
+  month: string,
+  triggeredBy: string,
+  onChunkStart: (
+    chunkIndex: number,
+    totalChunks: number,
+    clientsInChunk: WebhookClient[],
+    chunkTriggerTime: number
+  ) => void,
+  onChunkComplete: (
+    chunkIndex: number,
+    totalChunks: number,
+    record: RunHistoryRecord
+  ) => void
+): Promise<ChunkResult> {
+  const chunks: WebhookClient[][] = [];
+  for (let i = 0; i < clients.length; i += CHUNK_SIZE) {
+    chunks.push(clients.slice(i, i + CHUNK_SIZE));
+  }
+
+  const totalChunks = chunks.length;
+  let totalCompleted = 0;
+
+  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+    const chunk = chunks[chunkIndex];
+    const chunkTriggerTime = Date.now();
+
+    onChunkStart(chunkIndex, totalChunks, chunk, chunkTriggerTime);
+
+    const payload: WebhookPayload = {
+      trigger: 'manual',
+      month,
+      triggered_by: triggeredBy,
+      clients: chunk,
+    };
+
+    // Step 1: fire the webhook for this chunk
+    try {
+      await triggerInvoiceAutomation(payload);
+    } catch (err) {
+      // Webhook failed — report all remaining clients as unconfirmed
+      const failedClients = clients.slice(chunkIndex * CHUNK_SIZE).map((c) => c.client_name);
+      return {
+        totalRequested: clients.length,
+        totalCompleted,
+        failedClients,
+        failedChunkIndex: chunkIndex,
+      };
+    }
+
+    // Step 2: wait for this chunk's n8n run to finish before triggering the next
+    try {
+      const record = await pollForRunCompletionAsync(chunkTriggerTime, triggeredBy, chunk.length);
+      totalCompleted += chunk.length;
+      onChunkComplete(chunkIndex, totalChunks, record);
+    } catch {
+      // Timed out waiting — report this chunk's clients as unconfirmed
+      const failedClients = chunk.map((c) => c.client_name);
+      return {
+        totalRequested: clients.length,
+        totalCompleted,
+        failedClients,
+        failedChunkIndex: chunkIndex,
+      };
+    }
+  }
+
+  return {
+    totalRequested: clients.length,
+    totalCompleted,
+    failedClients: [],
+  };
 }
