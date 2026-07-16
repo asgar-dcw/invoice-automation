@@ -98,17 +98,23 @@ export async function fetchProgress(executionId: string, triggerTime: number): P
  * in `clients_processed` separated by " | ".
  *
  * Polls every 5 seconds. When the matching row appears, calls onRecordFound.
+ *
+ * @param afterDate - If provided, only match records whose `date` is strictly
+ *   newer than this value. Used by the chunked runner to prevent chunk N+1's
+ *   poll from accidentally matching chunk N's already-consumed completion record.
  */
 export function pollForRunCompletion(
   triggerTime: number,
   triggeredBy: string,
   clientCount: number,
   onRecordFound: (record: RunHistoryRecord) => void,
-  onTimeout: () => void
+  onTimeout: () => void,
+  afterDate?: string
 ): () => void {
   const startTime = Date.now();
   const TIMEOUT_MS = Math.max(10 * 60_000, clientCount * 3.5 * 60_000);
   const POLL_INTERVAL = 5000; // 5 seconds
+  const afterDateMs = afterDate ? new Date(afterDate).getTime() : null;
 
   const interval = setInterval(async () => {
     try {
@@ -122,10 +128,13 @@ export function pollForRunCompletion(
       // Bypass cache for fresh data
       const history = await fetchRunHistory(true);
 
-      // Find row that matches: same triggered_by + appeared after our trigger
+      // Find row that matches: same triggered_by + appeared after our trigger.
+      // If afterDate is set, also require the record to be strictly newer than
+      // the previous chunk's completion record so we never re-consume it.
       const matchedRecord = history.find((row) => {
         if (!row.date) return false;
         const rowTime = new Date(row.date).getTime();
+        if (afterDateMs !== null && rowTime <= afterDateMs) return false;
         return (
           row.triggered_by.trim().toLowerCase() === triggeredBy.trim().toLowerCase() &&
           rowTime > triggerTime - 30000 // 30s grace for clock skew
@@ -162,11 +171,14 @@ const CHUNK_SIZE = 5;
 /**
  * Wraps pollForRunCompletion as a Promise so it can be awaited inside
  * triggerInvoiceAutomationChunked.
+ *
+ * @param afterDate - forwarded to pollForRunCompletion; see its JSDoc.
  */
 function pollForRunCompletionAsync(
   triggerTime: number,
   triggeredBy: string,
-  clientCount: number
+  clientCount: number,
+  afterDate?: string
 ): Promise<RunHistoryRecord> {
   return new Promise((resolve, reject) => {
     pollForRunCompletion(
@@ -174,7 +186,8 @@ function pollForRunCompletionAsync(
       triggeredBy,
       clientCount,
       (record) => resolve(record),
-      () => reject(new Error('timeout'))
+      () => reject(new Error('timeout')),
+      afterDate
     );
   });
 }
@@ -209,10 +222,20 @@ export async function triggerInvoiceAutomationChunked(
 
   const totalChunks = chunks.length;
   let totalCompleted = 0;
+  // Tracks the completion record date from the previous chunk so the next
+  // chunk's poll cannot accidentally match the same (already-consumed) record.
+  let lastRecordDate: string | undefined;
 
   for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
     const chunk = chunks[chunkIndex];
     const chunkTriggerTime = Date.now();
+
+    // Timestamp log — confirm in browser dev-tools that successive chunk
+    // triggers are separated by minutes, NOT seconds.
+    console.log(
+      `[chunk ${chunkIndex + 1}/${totalChunks}] triggering at ${new Date().toISOString()} ` +
+      `(${chunk.length} clients: ${chunk.map((c) => c.client_name).join(', ')})`
+    );
 
     onChunkStart(chunkIndex, totalChunks, chunk, chunkTriggerTime);
 
@@ -237,9 +260,16 @@ export async function triggerInvoiceAutomationChunked(
       };
     }
 
-    // Step 2: wait for this chunk's n8n run to finish before triggering the next
+    // Step 2: wait for this chunk's n8n run to finish before triggering the next.
+    // Pass lastRecordDate so the poll ignores any record that was already matched
+    // by a previous chunk (prevents the "stale record re-consumption" bug).
     try {
-      const record = await pollForRunCompletionAsync(chunkTriggerTime, triggeredBy, chunk.length);
+      const record = await pollForRunCompletionAsync(chunkTriggerTime, triggeredBy, chunk.length, lastRecordDate);
+      lastRecordDate = record.date; // advance the floor for the next chunk's poll
+      console.log(
+        `[chunk ${chunkIndex + 1}/${totalChunks}] completed at ${new Date().toISOString()} ` +
+        `(record.date=${record.date})`
+      );
       totalCompleted += chunk.length;
       onChunkComplete(chunkIndex, totalChunks, record);
     } catch {
