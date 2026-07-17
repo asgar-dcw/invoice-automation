@@ -112,7 +112,7 @@ export function pollForRunCompletion(
   afterDate?: string
 ): () => void {
   const startTime = Date.now();
-  const TIMEOUT_MS = Math.max(10 * 60_000, clientCount * 3.5 * 60_000);
+  const TIMEOUT_MS = Math.max(2 * 60_000, clientCount * 45_000);
   const POLL_INTERVAL = 5000; // 5 seconds
   const afterDateMs = afterDate ? new Date(afterDate).getTime() : null;
 
