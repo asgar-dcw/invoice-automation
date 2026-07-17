@@ -1,13 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader2, CheckCircle2, AlertCircle, AlertTriangle, ExternalLink, MinusCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, AlertTriangle, ExternalLink } from 'lucide-react';
 import type { ClientProcessingStatus, ClientProcessingStep, RunHistoryRecord, ProgressRow } from '../../types/invoice';
 import { pollForRunCompletion, fetchProgress } from '../../services/invoiceAutomation';
-
-interface ChunkFailure {
-  chunkIndex: number;
-  totalChunks: number;
-  failedClients: string[];
-}
 
 interface RunStatusPanelProps {
   statuses: ClientProcessingStatus[];
@@ -21,12 +15,6 @@ interface RunStatusPanelProps {
   onComplete?: (record: RunHistoryRecord) => void;
   onTimeout?: () => void;
   onViewHistory?: () => void;
-  /** When true, the panel skips its internal pollForRunCompletion (used in chunked mode where App.tsx drives completion). */
-  skipInternalPolling?: boolean;
-  /** Per-chunk trigger time used for fetchProgress filtering; falls back to triggerTime when absent. */
-  chunkTriggerTime?: number;
-  /** Set when a chunk has failed, so the panel can surface actionable retry info. */
-  chunkFailure?: ChunkFailure | null;
 }
 
 function StepIndicator({ step }: { step: ClientProcessingStep }) {
@@ -61,12 +49,6 @@ function StepIndicator({ step }: { step: ClientProcessingStep }) {
       );
     case 'skipped':
       return (
-        <div className="w-8 h-8 rounded-full bg-slate-100 border-2 border-slate-200 flex items-center justify-center">
-          <MinusCircle className="w-4 h-4 text-slate-400" />
-        </div>
-      );
-    case 'invoice_created_needs_manual_send':
-      return (
         <div className="w-8 h-8 rounded-full bg-amber-50 border-2 border-amber-300 flex items-center justify-center">
           <AlertCircle className="w-4 h-4 text-amber-500" />
         </div>
@@ -93,8 +75,7 @@ function stepLabel(step: ClientProcessingStep, message: string): string {
     case 'finding_qb': return 'Getting payment link from QuickBooks...';
     case 'sending_ar': return 'Merging and saving drafts...';
     case 'draft_created': return 'Draft created successfully';
-    case 'skipped': return 'Skipped';
-    case 'invoice_created_needs_manual_send': return 'Invoice created — verify sent in QuickBooks';
+    case 'skipped': return 'Skipped – Automatic send failed, needs review';
     case 'new_client_needs_harvest_copy': return 'Not in QuickBooks — copy from Harvest';
     case 'error': return 'Error occurred';
   }
@@ -159,9 +140,6 @@ export default function RunStatusPanel({
   onComplete,
   onTimeout,
   onViewHistory,
-  skipInternalPolling = false,
-  chunkTriggerTime,
-  chunkFailure,
 }: RunStatusPanelProps) {
   const totalClients = statuses.length;
 
@@ -174,9 +152,9 @@ export default function RunStatusPanel({
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
   useEffect(() => { onTimeoutRef.current = onTimeout; }, [onTimeout]);
 
-  // Poll "runs" sheet for the completion row (skipped in chunked mode; App.tsx drives it)
+  // Poll "runs" sheet for the completion row
   useEffect(() => {
-    if (allDone || skipInternalPolling) return;
+    if (allDone) return;
 
     const unsubscribe = pollForRunCompletion(
       triggerTime,
@@ -187,19 +165,15 @@ export default function RunStatusPanel({
     );
 
     return () => unsubscribe();
-  }, [allDone, skipInternalPolling, triggerTime, triggeredBy]);
+  }, [allDone, triggerTime, triggeredBy]);
 
   // Poll "progress" sheet every 5 s for real per-client status
   useEffect(() => {
     if (allDone || isTimeout) return;
 
-    // In chunked mode, use the per-chunk trigger time so we pick up the current
-    // chunk's rows from the sheet rather than filtering them out as too old.
-    const progressTriggerTime = chunkTriggerTime ?? triggerTime;
-
     const poll = async () => {
       try {
-        const rows = await fetchProgress(executionId, progressTriggerTime);
+        const rows = await fetchProgress(executionId, triggerTime);
         setProgressRows(rows);
       } catch (err) {
         console.error('Error fetching progress:', err);
@@ -210,7 +184,7 @@ export default function RunStatusPanel({
     poll();
     const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);
-  }, [allDone, isTimeout, executionId, chunkTriggerTime]);
+  }, [allDone, isTimeout, executionId, triggerTime]);
 
   // Tick timer for elapsed counter display
   useEffect(() => {
@@ -232,7 +206,6 @@ export default function RunStatusPanel({
   const DONE_STEPS: ClientProcessingStep[] = [
     'draft_created',
     'skipped',
-    'invoice_created_needs_manual_send',
     'new_client_needs_harvest_copy',
     'error',
   ];
@@ -241,16 +214,11 @@ export default function RunStatusPanel({
     if (allDone && hasError) return statuses;
 
     return statuses.map((s) => {
-      // Always check progressRows first for the two new manual-action states —
-      // these can override even what App.tsx marked as draft_created after chunk
-      // completion, since the progress sheet is the authoritative source.
+      // Check progressRows for terminal states that override the default mapping.
       const row = progressRows.find(
         (r) => r.client_name.trim().toLowerCase() === s.client_name.trim().toLowerCase()
       );
 
-      if (row?.step === 'invoice_created_needs_manual_send') {
-        return { ...s, step: 'invoice_created_needs_manual_send' as const, message: 'Invoice created — verify sent in QuickBooks' };
-      }
       if (row?.step === 'new_client_needs_harvest_copy') {
         return { ...s, step: 'new_client_needs_harvest_copy' as const, message: 'Not in QuickBooks — copy from Harvest' };
       }
@@ -259,15 +227,8 @@ export default function RunStatusPanel({
         // When the run is complete, check progressRows for skipped before
         // defaulting everyone else to draft_created.
         if (s.step === 'skipped' || s.step === 'error') return s;
-        if (row?.step === 'skipped') return { ...s, step: 'skipped' as const, message: 'Skipped' };
+        if (row?.step === 'skipped') return { ...s, step: 'skipped' as const, message: 'Skipped – Automatic send failed, needs review' };
         return { ...s, step: 'draft_created' as const, message: 'Draft created successfully' };
-      }
-
-      // Preserve statuses that App.tsx has already confirmed (e.g. from completed
-      // chunks in a chunked run). Without this, clients from prior chunks would
-      // revert to 'pending' once the next chunk's triggerTime filters them out.
-      if (s.step === 'draft_created' || s.step === 'skipped' || s.step === 'error') {
-        return s;
       }
 
       if (!row) {
@@ -280,7 +241,7 @@ export default function RunStatusPanel({
         case 'draft_created':
           return { ...s, step: 'draft_created' as const, message: 'Draft created successfully' };
         case 'skipped':
-          return { ...s, step: 'skipped' as const, message: 'Skipped' };
+          return { ...s, step: 'skipped' as const, message: 'Skipped – Automatic send failed, needs review' };
         default:
           return { ...s, step: 'pending' as const, message: 'Waiting in queue...' };
       }
@@ -360,11 +321,9 @@ export default function RunStatusPanel({
                     <span>Completed with errors</span>
                   ) : (() => {
                     const draftReady = derivedStatuses.filter((s) => s.step === 'draft_created').length;
-                    const invoiceCreated = derivedStatuses.filter((s) => s.step === 'invoice_created_needs_manual_send').length;
                     const newClients = derivedStatuses.filter((s) => s.step === 'new_client_needs_harvest_copy').length;
                     const parts: string[] = [];
                     if (draftReady > 0) parts.push(`${draftReady} ready`);
-                    if (invoiceCreated > 0) parts.push(`${invoiceCreated} invoice created (needs verification)`);
                     if (newClients > 0) parts.push(`${newClients} not in QuickBooks (copy from Harvest)`);
                     return (
                       <>
@@ -440,42 +399,14 @@ export default function RunStatusPanel({
           </div>
         )}
 
-        {/* Chunk Failure Banner */}
-        {chunkFailure && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-xl slide-down space-y-3">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-red-800">
-                  Chunk {chunkFailure.chunkIndex + 1} of {chunkFailure.totalChunks} failed or timed out
-                </p>
-                <p className="text-xs text-red-700 mt-0.5">
-                  {totalClients - chunkFailure.failedClients.length} of {totalClients} clients completed successfully.
-                  The clients below still need to be processed — re-select them and run again.
-                </p>
-              </div>
-            </div>
-            <div className="pl-8 space-y-1.5">
-              {chunkFailure.failedClients.map((name) => (
-                <div key={name} className="flex items-center gap-2 text-xs text-red-700 font-semibold">
-                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 text-red-500" />
-                  {name}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Post-Run Summary Card */}
         {effectivelyDone && !hasError && (
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4 slide-down">
             {(() => {
               const draftReady = derivedStatuses.filter((s) => s.step === 'draft_created').length;
-              const invoiceCreated = derivedStatuses.filter((s) => s.step === 'invoice_created_needs_manual_send').length;
               const newClients = derivedStatuses.filter((s) => s.step === 'new_client_needs_harvest_copy').length;
               const parts: string[] = [];
               if (draftReady > 0) parts.push(`${draftReady} ready`);
-              if (invoiceCreated > 0) parts.push(`${invoiceCreated} invoice created (needs verification)`);
               if (newClients > 0) parts.push(`${newClients} not in QuickBooks (copy from Harvest)`);
               return (
                 <div className="flex items-center justify-between">
@@ -502,40 +433,30 @@ export default function RunStatusPanel({
             })()}
 
             <div className="border-t border-slate-200 pt-3 space-y-2">
-              {derivedStatuses.map((s) => {
-                const isManualAction =
-                  s.step === 'invoice_created_needs_manual_send' ||
-                  s.step === 'new_client_needs_harvest_copy';
-                return (
-                  <div key={s.client_name} className={`bg-white px-3 py-2.5 rounded-lg border text-xs ${s.step === 'new_client_needs_harvest_copy' ? 'border-yellow-200' : 'border-slate-100'}`}>
+              {derivedStatuses.map((s) => (
+                  <div key={s.client_name} className={`bg-white px-3 py-2.5 rounded-lg border text-xs ${s.step === 'new_client_needs_harvest_copy' ? 'border-yellow-200' : s.step === 'skipped' ? 'border-amber-200' : 'border-slate-100'}`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 min-w-0">
-                        {s.step === 'invoice_created_needs_manual_send' ? (
-                          <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-                        ) : s.step === 'new_client_needs_harvest_copy' ? (
+                        {s.step === 'new_client_needs_harvest_copy' ? (
                           <AlertTriangle className="w-3.5 h-3.5 text-yellow-600 flex-shrink-0" />
                         ) : s.step === 'skipped' ? (
-                          <MinusCircle className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
                         ) : (
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
                         )}
                         <span className="font-semibold text-slate-800">{s.client_name}</span>
                         <span className="text-slate-300">|</span>
-                        <span className={s.step === 'new_client_needs_harvest_copy' ? 'text-yellow-700 font-medium' : isManualAction ? 'text-amber-700 font-medium' : 'text-slate-500'}>
+                        <span className={s.step === 'new_client_needs_harvest_copy' ? 'text-yellow-700 font-medium' : s.step === 'skipped' ? 'text-amber-700 font-medium' : 'text-slate-500'}>
                           {stepLabel(s.step, '')}
                         </span>
                       </div>
-                      {s.step === 'invoice_created_needs_manual_send' ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold flex-shrink-0">
-                          Verify in QuickBooks
-                        </span>
-                      ) : s.step === 'new_client_needs_harvest_copy' ? (
+                      {s.step === 'new_client_needs_harvest_copy' ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-yellow-50 border border-yellow-200 text-yellow-700 text-[10px] font-semibold flex-shrink-0">
                           Copy from Harvest
                         </span>
                       ) : s.step === 'skipped' ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-500 text-[10px] font-semibold flex-shrink-0">
-                          Skipped
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold flex-shrink-0">
+                          Needs review
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-[10px] font-semibold flex-shrink-0">
@@ -549,8 +470,7 @@ export default function RunStatusPanel({
                       </p>
                     )}
                   </div>
-                );
-              })}
+              ))}
             </div>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
@@ -589,15 +509,13 @@ export default function RunStatusPanel({
                       ? 'bg-emerald-50/50 border-emerald-100'
                       : s.step === 'error'
                         ? 'bg-red-50/50 border-red-100'
-                        : s.step === 'invoice_created_needs_manual_send'
+                        : s.step === 'skipped'
                           ? 'bg-amber-50/50 border-amber-200'
                           : s.step === 'new_client_needs_harvest_copy'
                             ? 'bg-yellow-50/50 border-yellow-200'
-                            : s.step === 'skipped'
+                            : s.step === 'pending'
                               ? 'bg-slate-50/50 border-slate-100'
-                              : s.step === 'pending'
-                                ? 'bg-slate-50/50 border-slate-100'
-                                : 'bg-orange-50/30 border-orange-100'
+                              : 'bg-orange-50/30 border-orange-100'
                   }`}
                   style={{ animationDelay: `${idx * 0.05}s` }}
                 >
@@ -611,13 +529,11 @@ export default function RunStatusPanel({
                           ? 'text-orange-500 font-semibold animate-pulse'
                           : s.step === 'draft_created'
                             ? 'text-emerald-600 font-medium'
-                            : s.step === 'invoice_created_needs_manual_send'
+                            : s.step === 'skipped'
                               ? 'text-amber-600 font-medium'
                               : s.step === 'new_client_needs_harvest_copy'
                                 ? 'text-yellow-700 font-medium'
-                                : s.step === 'skipped'
-                                  ? 'text-slate-400 font-medium'
-                                  : 'text-slate-500'
+                                : 'text-slate-500'
                     }`}>
                       {stepLabel(s.step, s.message)}
                     </p>
@@ -634,11 +550,8 @@ export default function RunStatusPanel({
                     <span className="badge-success text-[10px]">Done</span>
                   )}
                   {s.step === 'skipped' && (
-                    <span className="badge-neutral text-[10px]">Skipped</span>
-                  )}
-                  {s.step === 'invoice_created_needs_manual_send' && (
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-100 border border-amber-300 text-amber-700 text-[10px] font-semibold">
-                      Manual action
+                      Needs review
                     </span>
                   )}
                   {s.step === 'new_client_needs_harvest_copy' && (

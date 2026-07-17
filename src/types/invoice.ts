@@ -40,13 +40,12 @@ export type ClientProcessingStep =
   | 'sending_ar'
   | 'draft_created'
   | 'skipped'
-  | 'invoice_created_needs_manual_send'
   | 'new_client_needs_harvest_copy'
   | 'error';
 
 export interface ProgressRow {
   client_name: string;
-  step: 'processing' | 'draft_created' | 'skipped' | 'invoice_created_needs_manual_send' | 'new_client_needs_harvest_copy';
+  step: 'processing' | 'draft_created' | 'skipped' | 'new_client_needs_harvest_copy';
   updated_at: string;
 }
 
