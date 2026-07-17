@@ -17,9 +17,7 @@ const MAX_TOASTS = 5;
 import { fetchClients, clearSheetsCache, fetchEmailConfigs, fetchRunHistory } from './services/googleSheets';
 import {
   triggerInvoiceAutomation,
-  triggerInvoiceAutomationChunked,
 } from './services/invoiceAutomation';
-import type { ChunkResult } from './services/invoiceAutomation';
 import StatsCards from './components/invoice/StatsCards';
 import ClientTable from './components/invoice/ClientTable';
 import RunSummaryBar from './components/invoice/RunSummaryBar';
@@ -67,13 +65,6 @@ export default function App() {
   const [historyKey, setHistoryKey] = useState(0);
   const [completedRecord, setCompletedRecord] = useState<RunHistoryRecord | null>(null);
   const [isTimeout, setIsTimeout] = useState(false);
-  const [isChunkedRun, setIsChunkedRun] = useState(false);
-  const [chunkTriggerTime, setChunkTriggerTime] = useState<number>(0);
-  const [chunkFailure, setChunkFailure] = useState<{ chunkIndex: number; totalChunks: number; failedClients: string[] } | null>(null);
-  // Accumulates records from completed chunks so we can show a combined summary.
-  const chunkRecordsRef = useRef<RunHistoryRecord[]>([]);
-  // Tracks which clients belong to the current in-flight chunk (for onChunkComplete).
-  const currentChunkClientsRef = useRef<string[]>([]);
 
   const initialLoadRef = useRef(false);
   const lastHistoryRefreshRef = useRef(0);
@@ -227,9 +218,6 @@ export default function App() {
     setIsTimeout(false);
     setHasError(false);
     setCurrentExecutionId('');
-    setChunkFailure(null);
-    chunkRecordsRef.current = [];
-    currentChunkClientsRef.current = [];
 
     const now = new Date();
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -242,84 +230,6 @@ export default function App() {
       ar_email: c.ar_email,
       manual_attachment: c.manual_attachment === 'yes' ? 'yes' : ('no' as 'yes' | 'no'),
     }));
-
-    // -------------------------------------------------------------------------
-    // Chunked path: > 5 clients → split into chunks of 5 and run sequentially
-    // -------------------------------------------------------------------------
-    if (selected.length > 5) {
-      setIsChunkedRun(true);
-      setChunkTriggerTime(currentTriggerTime);
-
-      triggerInvoiceAutomationChunked(
-        clientsPayload,
-        month,
-        TRIGGERED_BY,
-        // onChunkStart
-        (chunkIndex, totalChunks, clientsInChunk, chunkTime) => {
-          currentChunkClientsRef.current = clientsInChunk.map((c) => c.client_name);
-          setChunkTriggerTime(chunkTime);
-          setCurrentExecutionId('');
-          addToast('info', `Processing batch ${chunkIndex + 1} of ${totalChunks} (${clientsInChunk.length} clients)...`);
-        },
-        // onChunkComplete
-        (chunkIndex, totalChunks, record) => {
-          const doneNames = currentChunkClientsRef.current;
-          chunkRecordsRef.current.push(record);
-
-          // Mark this chunk's clients as confirmed in statuses
-          setStatuses((prev) =>
-            prev.map((s) =>
-              doneNames.includes(s.client_name)
-                ? { ...s, step: 'draft_created' as const, message: 'Draft created successfully' }
-                : s
-            )
-          );
-
-          if (chunkIndex === totalChunks - 1) {
-            // All chunks done — build a combined record for the summary card
-            const allRecords = chunkRecordsRef.current;
-            const combinedClients = allRecords
-              .map((r) => r.clients_processed)
-              .join(' | ');
-            const combinedAmount = allRecords.reduce((sum, r) => sum + (r.total_amount || 0), 0);
-            const combinedRecord: RunHistoryRecord = {
-              ...record,
-              clients_processed: combinedClients,
-              client_count: selected.length,
-              total_amount: combinedAmount,
-            };
-            setAllDone(true);
-            setCompletedRecord(combinedRecord);
-            loadClients(true);
-          }
-        }
-      )
-        .then((result: ChunkResult) => {
-          if (result.failedClients.length > 0) {
-            setChunkFailure({
-              chunkIndex: result.failedChunkIndex ?? 0,
-              totalChunks: Math.ceil(selected.length / 5),
-              failedClients: result.failedClients,
-            });
-            setHasError(true);
-            setAllDone(true);
-            addToast('error', `Batch stopped after chunk ${(result.failedChunkIndex ?? 0) + 1} — ${result.failedClients.length} client(s) need retry`);
-          }
-        })
-        .catch((err) => {
-          const errMsg = err instanceof Error ? err.message : 'Unknown error';
-          addToast('error', `Chunked run failed: ${errMsg}`);
-          setHasError(true);
-          setAllDone(true);
-        });
-
-      return;
-    }
-
-    // -------------------------------------------------------------------------
-    // Single-shot path: ≤ 5 clients → existing behaviour, unchanged
-    // -------------------------------------------------------------------------
-    setIsChunkedRun(false);
 
     const payload: WebhookPayload = {
       trigger: 'manual',
@@ -580,9 +490,6 @@ export default function App() {
                   onTimeout={() => {
                     setIsTimeout(true);
                   }}
-                  skipInternalPolling={isChunkedRun}
-                  chunkTriggerTime={isChunkedRun ? chunkTriggerTime : undefined}
-                  chunkFailure={chunkFailure}
                 />
               </section>
             )}
