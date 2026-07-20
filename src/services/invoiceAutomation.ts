@@ -21,7 +21,18 @@ export async function triggerInvoiceAutomation(
   });
 
   if (!res.ok) {
-    throw new Error(`Webhook trigger failed: ${res.status} ${res.statusText}`);
+    let errorMessage = `Webhook trigger failed: ${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json() as Record<string, unknown>;
+      if (typeof body?.message === 'string' && body.message) {
+        errorMessage = body.message;
+      } else if (typeof body?.error === 'string' && body.error) {
+        errorMessage = body.error;
+      }
+    } catch {
+      // ignore JSON parse errors — keep the default message
+    }
+    throw new Error(errorMessage);
   }
 
   const data = await res.json();

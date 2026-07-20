@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader2, CheckCircle2, AlertCircle, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, AlertTriangle, ExternalLink, Info } from 'lucide-react';
 import type { ClientProcessingStatus, ClientProcessingStep, RunHistoryRecord, ProgressRow } from '../../types/invoice';
 import { pollForRunCompletion, fetchProgress } from '../../services/invoiceAutomation';
 
@@ -7,6 +7,7 @@ interface RunStatusPanelProps {
   statuses: ClientProcessingStatus[];
   allDone: boolean;
   hasError: boolean;
+  nothingToDoMessage?: string;
   triggerTime: number;
   triggeredBy: string;
   executionId: string;
@@ -132,6 +133,7 @@ export default function RunStatusPanel({
   statuses,
   allDone,
   hasError,
+  nothingToDoMessage,
   triggerTime,
   triggeredBy,
   executionId,
@@ -278,7 +280,7 @@ export default function RunStatusPanel({
 
   return (
     <div className="relative bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden slide-up">
-      {effectivelyDone && !hasError && <Confetti />}
+      {effectivelyDone && !hasError && !nothingToDoMessage && <Confetti />}
 
       <div className="p-6 space-y-5 relative z-10">
         {/* Header */}
@@ -288,7 +290,9 @@ export default function RunStatusPanel({
               effectivelyDone
                 ? hasError
                   ? 'bg-gradient-to-br from-red-500 to-rose-600 shadow-red-500/25'
-                  : 'bg-gradient-to-br from-emerald-500 to-green-600 shadow-emerald-500/25'
+                  : nothingToDoMessage
+                    ? 'bg-gradient-to-br from-blue-500 to-sky-600 shadow-blue-500/25'
+                    : 'bg-gradient-to-br from-emerald-500 to-green-600 shadow-emerald-500/25'
                 : isTimeout
                   ? 'bg-gradient-to-br from-amber-500 to-yellow-600 shadow-amber-500/25'
                   : 'bg-gradient-to-br from-orange-500 to-red-500 shadow-orange-500/25'
@@ -296,6 +300,8 @@ export default function RunStatusPanel({
               {effectivelyDone ? (
                 hasError ? (
                   <AlertCircle className="w-5 h-5 text-white" />
+                ) : nothingToDoMessage ? (
+                  <Info className="w-5 h-5 text-white" />
                 ) : (
                   <CheckCircle2 className="w-5 h-5 text-white scale-in" />
                 )
@@ -310,7 +316,9 @@ export default function RunStatusPanel({
                 {effectivelyDone
                   ? hasError
                     ? 'Completed with Errors'
-                    : 'All Done!'
+                    : nothingToDoMessage
+                      ? 'Already up to date'
+                      : 'All Done!'
                   : isTimeout
                     ? 'Taking longer than expected'
                     : 'Processing Invoices'}
@@ -319,6 +327,8 @@ export default function RunStatusPanel({
                 {effectivelyDone ? (
                   hasError ? (
                     <span>Completed with errors</span>
+                  ) : nothingToDoMessage ? (
+                    <span>No action needed — drafts already exist for this period</span>
                   ) : (() => {
                     const draftReady = derivedStatuses.filter((s) => s.step === 'draft_created').length;
                     const newClients = derivedStatuses.filter((s) => s.step === 'new_client_needs_harvest_copy').length;
@@ -364,7 +374,7 @@ export default function RunStatusPanel({
             </div>
           </div>
 
-          {effectivelyDone && !hasError && (
+          {effectivelyDone && !hasError && !nothingToDoMessage && (
             <a
               href="https://mail.google.com/mail/u/0/#drafts"
               target="_blank"
@@ -399,8 +409,21 @@ export default function RunStatusPanel({
           </div>
         )}
 
+        {/* Already-up-to-date Banner */}
+        {effectivelyDone && nothingToDoMessage && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 slide-down">
+            <div className="flex items-start gap-3">
+              <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-blue-800">Already up to date</p>
+                <p className="text-sm text-blue-700 mt-1">{nothingToDoMessage}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Post-Run Summary Card */}
-        {effectivelyDone && !hasError && (
+        {effectivelyDone && !hasError && !nothingToDoMessage && (
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4 slide-down">
             {(() => {
               const draftReady = derivedStatuses.filter((s) => s.step === 'draft_created').length;

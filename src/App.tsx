@@ -65,6 +65,7 @@ export default function App() {
   const [historyKey, setHistoryKey] = useState(0);
   const [completedRecord, setCompletedRecord] = useState<RunHistoryRecord | null>(null);
   const [isTimeout, setIsTimeout] = useState(false);
+  const [nothingToDoMessage, setNothingToDoMessage] = useState<string>('');
 
   const initialLoadRef = useRef(false);
   const lastHistoryRefreshRef = useRef(0);
@@ -217,6 +218,7 @@ export default function App() {
     setCompletedRecord(null);
     setIsTimeout(false);
     setHasError(false);
+    setNothingToDoMessage('');
     setCurrentExecutionId('');
 
     const now = new Date();
@@ -246,17 +248,33 @@ export default function App() {
       })
       .catch((err) => {
         const errMsg = err instanceof Error ? err.message : 'Unknown error';
-        setStatuses(
-          selected.map((c) => ({
-            client_name: c.client_name,
-            step: 'error' as const,
-            message: 'Failed to trigger workflow',
-            error: errMsg,
-          }))
-        );
-        setAllDone(true);
-        setHasError(true);
-        addToast('error', `Failed to trigger: ${errMsg}`);
+
+        if (errMsg.includes('Nothing to do')) {
+          // Duplicate-prevention guard fired — this is a success case, not a failure.
+          setStatuses(
+            selected.map((c) => ({
+              client_name: c.client_name,
+              step: 'draft_created' as const,
+              message: 'Already has a draft for this period',
+            }))
+          );
+          setAllDone(true);
+          setHasError(false);
+          setNothingToDoMessage(errMsg);
+          addToast('info', 'Already up to date — drafts already exist for this period.');
+        } else {
+          setStatuses(
+            selected.map((c) => ({
+              client_name: c.client_name,
+              step: 'error' as const,
+              message: 'Failed to trigger workflow',
+              error: errMsg,
+            }))
+          );
+          setAllDone(true);
+          setHasError(true);
+          addToast('error', `Failed to trigger: ${errMsg}`);
+        }
       })
       .finally(() => {
         setTriggering(false);
@@ -476,6 +494,7 @@ export default function App() {
                   statuses={statuses}
                   allDone={allDone}
                   hasError={hasError}
+                  nothingToDoMessage={nothingToDoMessage}
                   triggerTime={triggerTime}
                   triggeredBy={TRIGGERED_BY}
                   executionId={currentExecutionId}
